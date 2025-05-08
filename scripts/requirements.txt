@@ -1,0 +1,4 @@
+kafka-python==2.0.2
+pyspark==3.5.1
+opencv-python==4.9.0.80
+ultralytics==8.3.0

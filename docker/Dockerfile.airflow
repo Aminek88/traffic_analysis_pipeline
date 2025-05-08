@@ -1,0 +1,35 @@
+FROM fil_rouge_2_base
+
+# Installer Airflow, dépendances système et postgresql-client
+RUN apt-get update && apt-get install -y \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    openjdk-17-jre-headless \
+    procps \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+# Créer un utilisateur airflow avec UID 50000 et GID 0
+USER root
+RUN useradd -u 50000 -g 0 -m -d /home/airflow -s /bin/bash airflow && \
+    mkdir -p /airflow/logs/scheduler /opt/airflow/output /opt/airflow/jars && \
+    chown -R airflow:root /airflow /opt/airflow /home/airflow && \
+    chmod -R 775 /airflow /opt/airflow /home/airflow
+
+# Uninstall kafka-python and six to ensure a clean install
+RUN pip uninstall kafka-python six -y || true  
+
+# Install Airflow and all Python dependencies as root
+RUN pip install --no-cache-dir \
+    apache-airflow==2.9.0 \
+    kafka-python \
+    six \
+    psycopg2-binary
+
+# Copier tous les JARs
+COPY ./jars/* /opt/airflow/jars/
+
+# Passer à l'utilisateur airflow
+USER airflow:root

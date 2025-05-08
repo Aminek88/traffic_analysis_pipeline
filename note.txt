@@ -1,0 +1,23 @@
+1,Supprimer tous les conteneurs (en cours ou arrêtés) : 
+docker rm -f $(docker ps -aq)
+2. Supprimer toutes les images :
+docker rmi -f $(docker images -aq)
+3. Supprimer tous les volumes :
+docker volume rm $(docker volume ls -q)
+4. Nettoyer tout, y compris les volumes :
+docker system prune -a --volumes
+5.stockage occupe : 
+docker system df
+
+
+6.run dockerfile.base
+
+docker build -t fil_rouge_2_base -f docker/Dockerfile.base .
+
+docker-compose -f docker/docker-compose.yml up --build
+
+
+pip install --user lapx
+
+
+Our apologies, your request is as expansive as the galaxy itself. Could you make it more terrestrial for us?
