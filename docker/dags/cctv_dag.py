@@ -70,8 +70,17 @@ def validate_schema_cmd(**context):
         print(f"Erreur dans validate_schema.py: {result.stderr}")
         raise Exception(f"Erreur dans validate_schema.py: {result.stderr}")
 
+def check_data_quality_cmd(**context):
+    date_str = context['ds']
+    cmd = f"python /opt/airflow/scripts/data_quality.py {date_str} --strict"
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    print(f"Vérification qualité: {result.stdout}")
+    if result.stderr:
+        print(f"Erreur dans data_quality.py: {result.stderr}")
+        raise Exception(f"Erreur dans data_quality.py: {result.stderr}")
+
 def branch_func(**context):
-    """Décide si validate_schema doit être exécuté en fonction du résultat de check_minio_data_presence."""
+    """Décide si validate_schema et check_data_quality doivent être exécutés."""
     task_instance = context['task_instance']
     check_result = task_instance.xcom_pull(task_ids='check_minio_data_presence', key='check_result')
     if check_result and check_result.get('rows', 0) > 0:
@@ -136,7 +145,16 @@ task5 = PythonOperator(
     dag=dag
 )
 
-# Tâche 6 : Sauter la validation si aucune donnée
+# Tâche 6 : Vérification de la qualité des données
+task6 = PythonOperator(
+    task_id="check_data_quality",
+    python_callable=check_data_quality_cmd,
+    provide_context=True,
+    trigger_rule="all_success",
+    dag=dag
+)
+
+# Tâche 7 : Sauter la validation si aucune donnée
 skip_validation = DummyOperator(
     task_id="skip_validation",
     trigger_rule="all_done",
@@ -146,3 +164,4 @@ skip_validation = DummyOperator(
 # Définir l'ordre d'exécution
 task1 >> task2 >> task3 >> branch_task
 branch_task >> [task5, skip_validation]
+task5 >> task6
