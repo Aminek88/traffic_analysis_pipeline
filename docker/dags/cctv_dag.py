@@ -31,7 +31,7 @@ def ingest_videos(periods, execution_date):
             video_file = f"vid_{period}.mp4"
             video_path = os.path.join(video_dir, video_file)
             if os.path.exists(video_path):
-                cmd = f"python /opt/airflow/scripts/ingestion.py {video_path} {topic} {period} {date_str}"
+                cmd = f"python /opt/airflow/scripts/Batch/ingestion.py {video_path} {topic} {period} {date_str}"
                 result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
                 print(f"Ingestion de {video_path}: {result.stdout}")
                 if result.stderr:
@@ -40,7 +40,7 @@ def ingest_videos(periods, execution_date):
                 print(f"Fichier {video_path} non trouvé")
 
 def run_preprocess_videos():
-    cmd = "python /opt/airflow/scripts/preprocess_video.py"
+    cmd = "python /opt/airflow/scripts/Batch/preprocess_video.py"
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     print(f"Prétraitement: {result.stdout}")
     if result.returncode != 0 or ("ERROR" in result.stderr or "Exception" in result.stderr):
@@ -53,7 +53,7 @@ def check_data_presence_cmd(**context):
     date_str = context['ds']  # e.g., '2025-05-19'
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     formatted_date = date_obj.strftime("%d-%m-%Y")  # e.g., '19-05-2025'
-    cmd = f"python /opt/airflow/scripts/check_data_presence.py {formatted_date}"
+    cmd = f"python /opt/airflow/scripts/Batch/check_data_presence.py {formatted_date}"
     # Run with explicit stdout and stderr capture
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='utf-8')
     # Log raw outputs
@@ -80,7 +80,7 @@ def validate_schema_cmd(**context):
     date_str = context['ds']
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     formatted_date = date_obj.strftime("%d-%m-%Y")  # e.g., '19-05-2025'
-    cmd = f"python /opt/airflow/scripts/validate_schema.py {formatted_date}"
+    cmd = f"python /opt/airflow/scripts/Batch/validate_schema.py {formatted_date}"
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     print(f"Validation schéma: {result.stdout}")
     if result.returncode != 0 or ("ERROR" in result.stderr or "Exception" in result.stderr):
@@ -93,7 +93,7 @@ def check_data_quality_cmd(**context):
     date_str = context['ds']
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     formatted_date = date_obj.strftime("%d-%m-%Y")
-    cmd = f"python /opt/airflow/scripts/data_quality.py {formatted_date}" 
+    cmd = f"python /opt/airflow/scripts/Batch/data_quality.py {formatted_date}" 
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='utf-8')
     logger.info(f"Command: {cmd}")
     logger.info(f"Vérification qualité: {result.stdout}")
@@ -120,7 +120,7 @@ def branch_func(**context):
 def aggregate_traffic_data(**context):
     date_str = context['ds']
     formatted_date = datetime.strptime(date_str, '%Y-%m-%d').strftime('%d-%m-%Y')
-    cmd = f"python /opt/airflow/scripts/aggregate_traffic.py {formatted_date}"
+    cmd = f"python /opt/airflow/scripts/Batch/aggregate_traffic.py {formatted_date}"
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     logger.info(f"Aggregation: {result.stdout}")
     if result.returncode != 0 or ("ERROR" in result.stderr or "Exception" in result.stderr):
@@ -131,7 +131,7 @@ def aggregate_traffic_data(**context):
 dag = DAG(
     "cctv_batch_ingestion",
     start_date=datetime(2025, 3, 31),
-    schedule="0 23 * * *",  # 23h00 chaque jour
+    schedule=None,  # 23h00 chaque jour
     catchup=False,
     is_paused_upon_creation=True,
     default_args={
