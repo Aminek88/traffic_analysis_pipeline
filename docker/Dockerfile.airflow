@@ -26,8 +26,7 @@ RUN pip install --no-cache-dir \
     apache-airflow==2.9.0 \
     kafka-python \
     six \
-    psycopg2-binary
-
+    psycopg2-binary 
 # Copier tous les JARs
 COPY ./jars/* /opt/airflow/jars/
 

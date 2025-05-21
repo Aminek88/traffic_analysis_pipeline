@@ -136,6 +136,7 @@ def preprocess_videos():
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
         .config("spark.sql.shuffle.partitions", "16") \
         .config("spark.default.parallelism", "16") \
+        .config("spark.hadoop.mapreduce.outputcommitter.factory.class", "org.apache.hadoop.mapreduce.lib.output.DirectOutputCommitter") \
         .getOrCreate()
 
     try:
@@ -202,7 +203,7 @@ def preprocess_videos():
         spark.stop()
         return
 
-    parsed_data.write.json(metadata_path, mode="overwrite")
+    parsed_data.write.mode("overwrite").parquet(metadata_path)  # Changed from .json to .parquet
     logger.info(f"Kafka metadata saved to {metadata_path}")
 
     for row in parsed_data.collect():
@@ -241,7 +242,6 @@ def preprocess_videos():
             lit(period).alias("period")
         )
 
-        # Calcul des vélocités avec correction pour le premier frame
         detection_df = detection_df.withColumn("x_centre", (col("x_max") + col("x_min")) / 2) \
                                    .withColumn("y_centre", (col("y_max") + col("y_min")) / 2)
         window_spec = Window.partitionBy("track_id").orderBy("frame_id")
@@ -255,30 +255,22 @@ def preprocess_videos():
                                    .withColumn("y_velocity", col("y_delta") / 30.0) \
                                    .drop("x_centre", "y_centre")
 
-        # Filtrer les détections sans track_id
         detection_df = detection_df.filter(col("track_id").isNotNull())
 
-        # Ajouter une colonne aléatoire pour mélanger les track_id au sein de chaque frame_id
         detection_df = detection_df.withColumn("temp_rand", rand())
-
-        # Tri global par frame_id avec mélange aléatoire
         detection_df = detection_df.orderBy("frame_id", "temp_rand").drop("temp_rand").cache()
 
-        # Débogage : vérifier l'ordre global
         logger.info(f"Order after global sort for {video_path}")
         detection_df.select("frame_id", "track_id", "class_name").show(50, truncate=False)
 
-        # Débogage : vérifier l'ordre pour frame_id 0
         logger.info(f"Order for frame_id 0 for {video_path}")
         detection_df.filter(col("frame_id") == 0) \
                     .select("frame_id", "track_id", "class_name") \
                     .show(10, truncate=False)
 
-        # Débogage : vérifier les derniers frame_id
         logger.info(f"Order for last frame_ids for {video_path}")
         detection_df.select("frame_id", "track_id", "class_name").orderBy(col("frame_id").desc()).show(20, truncate=False)
 
-        # Forcer un seul fichier par partition
         detection_df = detection_df.coalesce(1)
 
         transform_time = time.time() - transform_start
@@ -291,7 +283,6 @@ def preprocess_videos():
         detection_df.write.partitionBy("date", "camera", "period").parquet(output_path, mode="overwrite")
         logger.info(f"Results saved to {output_path}/date={date}/camera={camera}/period={period}")
 
-        # Vider le cache
         detection_df.unpersist()
 
     spark.stop()

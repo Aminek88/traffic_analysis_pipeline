@@ -53,7 +53,6 @@ def check_data_presence(date_str):
 
         # Log succès
         logger.info(f"Vérification de présence terminée pour {date_str}: {row_count} lignes, Caméras: {cameras_present}, Périodes: {periods_present}, Statut: {status}")
-        
         spark.stop()
         return {
             "status": status,

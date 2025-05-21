@@ -3,6 +3,8 @@ import logging
 from pyspark.sql import SparkSession
 import pandas as pd
 from io import StringIO
+import boto3
+from botocore.exceptions import ClientError
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +31,16 @@ def generate_data_quality_report(date_str):
 
         if row_count == 0:
             raise ValueError("Aucune donnée trouvée pour la date spécifiée")
+
+        # Vérifier les caméras et périodes
+        cameras = set(df_spark.select("camera").distinct().rdd.flatMap(lambda x: x).collect())
+        periods = set(df_spark.select("period").distinct().rdd.flatMap(lambda x: x).collect())
+        expected_cameras = {"camera1", "camera2"}
+        expected_periods = {"09:00_10:00", "10:00_11:00"}
+        missing_cameras = expected_cameras - cameras
+        missing_periods = expected_periods - periods
+        if missing_cameras or missing_periods:
+            logger.info(f"Données partielles pour {date_str}. Caméras manquantes: {missing_cameras}, Périodes manquantes: {missing_periods}")
 
         # Convertir en pandas DataFrame
         data1 = df_spark.toPandas()
@@ -57,13 +69,29 @@ def generate_data_quality_report(date_str):
 
         # 4. data1['video_id'].str.split('_')[0]
         report.write("\n\n=== Première partie de video_id ===\n")
-        # Exemple de split basé sur ['camera2', '09-05-2025', '09:00', '10:00']
         sample_video_id = data1['video_id'].iloc[0] if not data1.empty else "camera2_09-05-2025_09:00_10:00"
         report.write(f"metadonne sur le vedio  : {sample_video_id.split('_')}\n")
 
-        # Sauvegarder le rapport dans un seul fichier
-        report_str = report.getvalue()
+        # Supprimer le rapport existant
         report_path = f"s3a://processed/reports/date={date_str}/data_quality_report.txt"
+        s3_client = boto3.client(
+            's3',
+            endpoint_url='http://minio:9000',
+            aws_access_key_id='minioadmin',
+            aws_secret_access_key='minioadmin'
+        )
+        bucket = 'processed'
+        prefix = f"reports/date={date_str}/data_quality_report.txt"
+        try:
+            s3_client.delete_object(Bucket=bucket, Key=prefix)
+            logger.info(f"Deleted existing report at {prefix}")
+        except ClientError as e:
+            if e.response['Error']['Code'] != 'NoSuchKey':
+                logger.error(f"Failed to delete {prefix}: {e}")
+                raise
+
+        # Sauvegarder le rapport
+        report_str = report.getvalue()
         spark.sparkContext.parallelize([report_str]).coalesce(1).saveAsTextFile(report_path)
         logger.info(f"Rapport enregistré dans {report_path}")
 
@@ -80,7 +108,7 @@ def generate_data_quality_report(date_str):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        logger.error("Usage: python data_quality_report.py <date_str>")
+        logger.error("Usage: python data_quality.py <date_str>")
         sys.exit(1)
     date_str = sys.argv[1]
     result = generate_data_quality_report(date_str)

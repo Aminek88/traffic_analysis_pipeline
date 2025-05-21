@@ -43,41 +43,67 @@ def run_preprocess_videos():
     cmd = "python /opt/airflow/scripts/preprocess_video.py"
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     print(f"Prétraitement: {result.stdout}")
-    if result.stderr:
+    if result.returncode != 0 or ("ERROR" in result.stderr or "Exception" in result.stderr):
         print(f"Erreur dans preprocess_video.py: {result.stderr}")
         raise Exception(f"Erreur dans preprocess_video.py: {result.stderr}")
+    else:
+        print("Preprocess videos completed successfully")
 
 def check_data_presence_cmd(**context):
-    date_str = context['ds']
-    cmd = f"python /opt/airflow/scripts/check_data_presence.py {date_str}"
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    date_str = context['ds']  # e.g., '2025-05-19'
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    formatted_date = date_obj.strftime("%d-%m-%Y")  # e.g., '19-05-2025'
+    cmd = f"python /opt/airflow/scripts/check_data_presence.py {formatted_date}"
+    # Run with explicit stdout and stderr capture
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='utf-8')
+    # Log raw outputs
+    logger.info(f"Command: {cmd}")
+    logger.info(f"Raw stdout: {repr(result.stdout)}")
+    logger.info(f"Raw stderr: {repr(result.stderr)}")
+    logger.info(f"Return code: {result.returncode}")
     print(f"Vérification présence: {result.stdout}")
-    if result.stderr:
-        print(f"Erreur dans check_data_presence.py: {result.stderr}")
+    # Check for errors
+    if result.returncode != 0 or ("ERROR" in result.stderr or "Exception" in result.stderr):
+        logger.error(f"Erreur dans check_data_presence.py: {result.stderr}")
         raise Exception(f"Erreur dans check_data_presence.py: {result.stderr}")
-    # Extraire le nombre de lignes depuis la sortie
-    match = re.search(r"(\d+) lignes", result.stdout)
+    # Parse row count with flexible regex
+    match = re.search(r"(\d+)\s+lignes", result.stdout, re.MULTILINE | re.IGNORECASE)
+    if not match:
+        # Try stderr in case output is there
+        match = re.search(r"(\d+)\s+lignes", result.stderr, re.MULTILINE | re.IGNORECASE)
     rows = int(match.group(1)) if match else 0
     context['task_instance'].xcom_push(key='check_result', value={'rows': rows})
+    logger.info(f"Parsed rows: {rows}")
     return {'rows': rows}
 
 def validate_schema_cmd(**context):
     date_str = context['ds']
-    cmd = f"python /opt/airflow/scripts/validate_schema.py {date_str}"
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    formatted_date = date_obj.strftime("%d-%m-%Y")  # e.g., '19-05-2025'
+    cmd = f"python /opt/airflow/scripts/validate_schema.py {formatted_date}"
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     print(f"Validation schéma: {result.stdout}")
-    if result.stderr:
-        print(f"Erreur dans validate_schema.py: {result.stderr}")
+    if result.returncode != 0 or ("ERROR" in result.stderr or "Exception" in result.stderr):
+        logger.error(f"Erreur dans validate_schema.py: {result.stderr}")
         raise Exception(f"Erreur dans validate_schema.py: {result.stderr}")
+    logger.info("Schema validation completed successfully")
+    return result.stdout
 
 def check_data_quality_cmd(**context):
     date_str = context['ds']
-    cmd = f"python /opt/airflow/scripts/data_quality.py {date_str} --strict"
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    print(f"Vérification qualité: {result.stdout}")
-    if result.stderr:
-        print(f"Erreur dans data_quality.py: {result.stderr}")
-        raise Exception(f"Erreur dans data_quality.py: {result.stderr}")
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    formatted_date = date_obj.strftime("%d-%m-%Y")
+    cmd = f"python /opt/airflow/scripts/data_quality.py {formatted_date}" 
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='utf-8')
+    logger.info(f"Command: {cmd}")
+    logger.info(f"Vérification qualité: {result.stdout}")
+    logger.info(f"Raw stderr: {repr(result.stderr)}")
+    logger.info(f"Return code: {result.returncode}")
+    if result.returncode != 0 or ("ERROR" in result.stderr or "Exception" in result.stderr):
+        logger.error(f"Erreur dans data_quality_report.py: {result.stderr}")
+        raise Exception(f"Erreur dans data_quality_report.py: {result.stderr}")
+    logger.info("Data quality check completed successfully")
+    return result.stdout
 
 def branch_func(**context):
     """Décide si validate_schema et check_data_quality doivent être exécutés."""
@@ -89,6 +115,17 @@ def branch_func(**context):
     else:
         logger.info("Aucune donnée disponible, passage à skip_validation")
         return 'skip_validation'
+
+### Tâche d'agrégation
+def aggregate_traffic_data(**context):
+    date_str = context['ds']
+    formatted_date = datetime.strptime(date_str, '%Y-%m-%d').strftime('%d-%m-%Y')
+    cmd = f"python /opt/airflow/scripts/aggregate_traffic.py {formatted_date}"
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    logger.info(f"Aggregation: {result.stdout}")
+    if result.returncode != 0 or ("ERROR" in result.stderr or "Exception" in result.stderr):
+        logger.error(f"Error in aggregation: {result.stderr}")
+        raise Exception(f"Error in aggregation: {result.stderr}")
 
 # Définir le DAG
 dag = DAG(
@@ -154,6 +191,14 @@ task6 = PythonOperator(
     dag=dag
 )
 
+# Tâche 7 : Agrégation des données de circulation
+task7 = PythonOperator(
+    task_id="aggregate_traffic_data",
+    python_callable=aggregate_traffic_data,
+    provide_context=True,
+    trigger_rule="all_done",
+    dag=dag
+)
 # Tâche 7 : Sauter la validation si aucune donnée
 skip_validation = DummyOperator(
     task_id="skip_validation",
@@ -165,3 +210,4 @@ skip_validation = DummyOperator(
 task1 >> task2 >> task3 >> branch_task
 branch_task >> [task5, skip_validation]
 task5 >> task6
+[task6, skip_validation] >> task7
